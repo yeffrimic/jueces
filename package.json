@@ -3,10 +3,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "wrangler pages dev",
+    "dev": "wrangler dev",
     "db:migrate:local": "wrangler d1 migrations apply jueces --local",
     "db:migrate:remote": "wrangler d1 migrations apply jueces --remote",
-    "deploy": "wrangler pages deploy"
+    "deploy": "wrangler deploy"
   },
   "devDependencies": {
     "wrangler": "^4"

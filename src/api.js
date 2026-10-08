@@ -1,4 +1,4 @@
-// API de la app de jueces. Corre en Cloudflare Pages Functions con una base D1 (binding DB).
+// API de la app de jueces. Corre en un Cloudflare Worker con una base D1 (binding DB).
 // Secrets requeridos: ADMIN_PASSWORD, SESSION_SECRET.
 
 const SESSION_TTL = 12 * 3600; // segundos

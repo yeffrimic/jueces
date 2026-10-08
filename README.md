@@ -1,7 +1,7 @@
 # ⚖️ Panel de jueces
 
-Plataforma web para calificar proyectos en eventos con varios jueces. Corre en **Cloudflare Pages** (gratis):
-la página es estática y todos los datos pasan por una API propia en el servidor (Pages Functions + base de datos D1).
+Plataforma web para calificar proyectos en eventos con varios jueces. Corre en **Cloudflare Workers** (gratis):
+la página es estática y todos los datos pasan por una API propia en el servidor (Worker + base de datos D1).
 **El navegador nunca recibe claves ni acceso directo a la base de datos.**
 
 - **Organizador** (`/`): entra con contraseña, crea eventos, define criterios y pesos, agrega jueces y obtiene ranking, puntajes y feedback.
@@ -11,8 +11,9 @@ la página es estática y todos los datos pasan por una API propia en el servido
 
 ## Estructura
 ```
-public/                     página estática (lo único que se publica como archivos)
-functions/api/[[path]].js   API: sesión del organizador, validación y acceso a D1
+public/          página estática (lo único que se publica como archivos)
+src/worker.js    entrada del Worker: /api/* → API, lo demás → public/
+src/api.js       API: sesión del organizador, validación y acceso a D1
 migrations/                 esquema de la base de datos
 wrangler.toml               configuración de Cloudflare
 ```
@@ -37,33 +38,31 @@ npm run db:migrate:remote               # crea las tablas en Cloudflare
    ```bash
    git init && git add . && git commit -m "Panel de jueces"
    git branch -M main
-   git remote add origin https://github.com/TU-USUARIO/jueces.git
+   git remote add origin git@github.com:TU-USUARIO/jueces.git
    git push -u origin main
    ```
-2. En Cloudflare: **Workers & Pages → Create → Pages → Connect to Git** y elige el repo.
-   - Framework preset: *None*
+2. En Cloudflare: **Workers & Pages → Create → Import a repository** y elige el repo.
    - Build command: *(vacío)*
-   - Build output directory: `public`
-3. Antes o después del primer deploy, en el proyecto: **Settings → Variables and Secrets → Add** (tipo *Secret*, entorno *Production*):
+   - Deploy command: `npx wrangler deploy` (el valor por defecto)
+3. En el Worker: **Settings → Variables and Secrets → Add** (tipo *Secret*):
    - `ADMIN_PASSWORD`: tu contraseña de organizador (larga, por ejemplo 4 o 5 palabras).
    - `SESSION_SECRET`: el resultado de `openssl rand -hex 32`.
-4. **Deployments → Retry deployment** (o haz un push) para que tome los secrets.
+4. La base de datos se conecta sola desde `wrangler.toml`. Puedes comprobarlo en **Settings → Bindings** (`DB → jueces`).
 
-Desde entonces, cada `git push` publica la nueva versión. La URL será `https://jueces.pages.dev` (o el nombre que elijas).
+Desde entonces, cada `git push` publica la nueva versión. La URL será `https://jueces.<tu-subdominio>.workers.dev` (está en **Settings → Domains & Routes**).
 
 ### Opción B: publicar desde tu computadora
 ```bash
-npx wrangler pages project create jueces --production-branch main
-npx wrangler pages secret put ADMIN_PASSWORD --project-name jueces
-npx wrangler pages secret put SESSION_SECRET --project-name jueces
 npm run deploy
+npx wrangler secret put ADMIN_PASSWORD
+npx wrangler secret put SESSION_SECRET
 ```
 
 ## Probar localmente
 ```bash
 cp .dev.vars.example .dev.vars          # y edita la contraseña y el secreto
 npm run db:migrate:local
-npm run dev                             # abre http://localhost:8788
+npm run dev                             # abre http://localhost:8787
 ```
 
 ## Uso

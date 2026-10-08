@@ -1,0 +1,3 @@
+# Copia este archivo como .dev.vars para desarrollo local (no se sube a git).
+ADMIN_PASSWORD=cambia-esta-contraseña
+SESSION_SECRET=pon-aqui-el-resultado-de-openssl-rand-hex-32

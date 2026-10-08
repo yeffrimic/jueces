@@ -78,7 +78,7 @@ export function formDialog({ title, fields = [], submit = "Guardar", note = "", 
     const d = document.createElement("dialog");
     d.innerHTML = `<form class="stack">
       <h3>${esc(title)}</h3>
-      ${note ? `<p class="muted">${note}</p>` : ""}
+      ${note ? `<div class="dialog-note">${note}</div>` : ""}
       ${fields.map((f) => `<label>${esc(f.label)}${
         f.type === "textarea"
           ? `<textarea name="${f.name}" rows="3" ${f.required ? "required" : ""}>${esc(f.value ?? "")}</textarea>`

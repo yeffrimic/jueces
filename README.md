@@ -74,6 +74,38 @@ npm run dev                             # abre http://localhost:8787
 6. Al terminar, pulsa **Cerrar evento**: los jueces ya no pueden editar.
 7. Descarga el ranking y el detalle (CSV) y entrega el feedback desde **Feedback**.
 
+### Crear un evento desde un archivo .md
+En **Eventos → Importar .md** (o arrastrando el archivo a la página) se crea el evento completo de una vez:
+instrucciones, escala, criterios con pesos, jueces con su enlace y proyectos. Antes de crear se muestra un resumen
+con los avisos encontrados. Descarga la [plantilla](public/plantilla-evento.md) desde el panel para empezar.
+
+```markdown
+# Hackathon IoT 2026
+
+Instrucciones para los jueces (texto libre, varias líneas).
+
+## Configuración
+- escala: 10          (puntaje máximo por criterio, de 1 a 100)
+- abierto: sí
+
+## Criterios
+- Innovación (peso 2): Originalidad de la idea
+- Presentación: Claridad del pitch          (sin peso = 1)
+
+## Jueces
+- Ana López
+- Luis Pérez
+
+## Proyectos
+- Riego Inteligente | Equipo Verde | Descripción opcional
+- EcoMedidor | Team Volta
+```
+
+- Las secciones *Criterios*, *Jueces* y *Proyectos* también aceptan tablas Markdown (columnas `Criterio | Peso | Descripción`, `Nombre`, `Proyecto | Equipo | Descripción`).
+- Si falta *Criterios*, se usan los criterios por defecto. Las secciones desconocidas se agregan a las instrucciones y los comentarios `<!-- -->` se ignoran.
+- Jueces o proyectos repetidos se omiten con un aviso. El límite es 100 jueces y 300 proyectos por archivo.
+- En **Configuración → Exportar .md** se descarga cualquier evento en este mismo formato, útil para duplicarlo o usarlo como base del siguiente.
+
 **Cálculo**: para cada juez, `total = Σ(nota ÷ máximo × peso) ÷ Σ pesos × 100`. El puntaje del proyecto es el promedio de los jueces que lo calificaron; los empates comparten posición.
 
 ## Seguridad

@@ -190,3 +190,11 @@ dialog::backdrop { background: rgb(0 0 0 / 0.45); }
   .crit-row .weight { grid-column: 1; grid-row: 3; }
   h1 { font-size: 1.3rem; }
 }
+
+/* ---- Importar .md ---- */
+main.dropping { outline: 2px dashed var(--accent); outline-offset: -8px; border-radius: var(--radius); }
+dialog { max-height: 88vh; overflow-y: auto; }
+ul.preview { margin: 4px 0 8px; padding-left: 20px; }
+ul.preview li { margin-bottom: 2px; }
+.banner ul { margin: 4px 0 0; padding-left: 18px; }
+.dialog-note { color: var(--text); line-height: 1.5; }

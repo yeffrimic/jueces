@@ -1,4 +1,5 @@
 import { api } from "./api.js";
+import { parseEventMd, eventToMd } from "./eventmd.js";
 import {
   esc, fmt, byName, randomToken, judgeTotal, toCSV, download, fileSafe, copyText, toast, formDialog, confirmDialog,
 } from "./util.js";
@@ -125,7 +126,16 @@ async function route() {
 
 function renderHome() {
   main.innerHTML = `
-    <div class="row between"><h1>Eventos</h1><button class="btn primary" id="new-ev">+ Nuevo evento</button></div>
+    <div class="row between wrap">
+      <h1>Eventos</h1>
+      <div class="row wrap">
+        <a class="btn ghost sm" href="plantilla-evento.md" download>Descargar plantilla .md</a>
+        <button class="btn" id="import-ev">Importar .md</button>
+        <button class="btn primary" id="new-ev">+ Nuevo evento</button>
+      </div>
+    </div>
+    <p class="muted small">Puedes crear un evento completo (instrucciones, escala, criterios, jueces y proyectos) subiendo un archivo .md o arrastrándolo aquí.</p>
+    <input type="file" id="md-file" accept=".md,.markdown,.txt,text/markdown,text/plain" hidden>
     ${S.events.length
       ? `<div class="grid">${S.events.map((e) => `
           <a class="card link" href="#/e/${e.id}">
@@ -148,6 +158,55 @@ function renderHome() {
     await loadEvents();
     location.hash = `#/e/${ref.id}/config`;
   };
+  const file = $("#md-file");
+  $("#import-ev").onclick = () => file.click();
+  file.onchange = () => {
+    if (file.files[0]) importMd(file.files[0]);
+    file.value = "";
+  };
+  // Solo en la lista de eventos (los handlers quedan en <main> al navegar).
+  main.ondragover = (ev) => {
+    if (S.eid) return;
+    ev.preventDefault();
+    main.classList.add("dropping");
+  };
+  main.ondragleave = () => main.classList.remove("dropping");
+  main.ondrop = (ev) => {
+    if (S.eid) return;
+    ev.preventDefault();
+    main.classList.remove("dropping");
+    if (ev.dataTransfer.files[0]) importMd(ev.dataTransfer.files[0]);
+  };
+}
+
+async function importMd(file) {
+  if (file.size > 400 * 1024) return toast("El archivo es demasiado grande (máx. 400 KB)", "error");
+  let parsed;
+  try {
+    parsed = parseEventMd(await file.text());
+  } catch (e) {
+    return toast(`No se pudo leer ${file.name}: ${e.message}`, "error");
+  }
+  const { event: e, warnings } = parsed;
+  const list = (items, max = 12) =>
+    items.length
+      ? `<ul class="preview">${items.slice(0, max).map((x) => `<li>${x}</li>`).join("")}${items.length > max ? `<li class="muted">…y ${items.length - max} más</li>` : ""}</ul>`
+      : `<p class="muted small">Ninguno</p>`;
+  const ok = await confirmDialog(`Crear "${e.name}"`, `
+    <span class="muted small">Archivo: ${esc(file.name)}</span><br>
+    Escala 0–${e.scaleMax ?? 10} · ${e.open === false ? "cerrado" : "abierto"}
+    ${e.description ? `<details><summary>Instrucciones para jueces</summary><p class="pre small">${esc(e.description)}</p></details>` : ""}
+    <b>Criterios (${e.criteria ? e.criteria.length : "por defecto"})</b>
+    ${e.criteria ? list(e.criteria.map((c) => `${esc(c.name)} <span class="muted">× ${c.weight}</span>${c.description ? `<div class="muted small">${esc(c.description)}</div>` : ""}`), 30) : ""}
+    <b>Jueces (${e.judges.length})</b>${list(e.judges.map(esc))}
+    <b>Proyectos (${e.projects.length})</b>${list(e.projects.map((p) => `${esc(p.name)}${p.team ? ` <span class="muted">· ${esc(p.team)}</span>` : ""}`))}
+    ${warnings.length ? `<div class="banner small"><b>Avisos:</b><ul>${warnings.map((w) => `<li>${esc(w)}</li>`).join("")}</ul></div>` : ""}`,
+  "Crear evento", false);
+  if (!ok) return;
+  const res = await api("POST", "events/import", e);
+  await loadEvents();
+  toast(`Evento creado con ${res.judges} jueces y ${res.projects} proyectos`);
+  location.hash = `#/e/${res.event.id}/${res.judges ? "jueces" : "config"}`;
 }
 
 function renderEvent() {
@@ -462,6 +521,10 @@ function tabConfig(el) {
   const hasScores = S.judges.some((j) => Object.keys(S.scores[j.id] || {}).length);
   el.innerHTML = `
     <form id="cfg" class="card stack">
+      <div class="row between wrap">
+        <h3>Configuración del evento</h3>
+        <button type="button" class="btn sm" id="export-md" title="Incluye criterios, jueces y proyectos; sirve para duplicar el evento">Exportar .md</button>
+      </div>
       <label>Nombre del evento<input name="name" required value="${esc(e.name)}"></label>
       <label>Instrucciones para los jueces<textarea name="description" rows="3">${esc(e.description || "")}</textarea></label>
       <label>Puntaje máximo por criterio (0 a…)<input name="scaleMax" type="number" min="1" max="100" required value="${e.scaleMax || 10}"></label>
@@ -481,6 +544,7 @@ function tabConfig(el) {
       <div><button class="btn danger" id="del-ev">Eliminar evento</button></div>
     </div>`;
 
+  $("#export-md").onclick = () => download(`${fileSafe(e.name)}.md`, eventToMd(e, S.judges, S.projects), "text/markdown");
   const list = $("#crit-list");
   const draw = () => {
     list.innerHTML = crit.map((c, i) => `<div class="crit-row" data-i="${i}">

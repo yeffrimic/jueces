@@ -4,7 +4,9 @@
 const SESSION_TTL = 12 * 3600; // segundos
 const LOGIN_WINDOW = 15 * 60;
 const LOGIN_MAX_FAILS = 10;
-const MAX_BODY = 64 * 1024;
+const MAX_BODY = 512 * 1024;
+const MAX_IMPORT_JUDGES = 100;
+const MAX_IMPORT_PROJECTS = 300;
 const COOKIE = "admin_session";
 
 class HttpError extends Error {
@@ -148,17 +150,35 @@ async function getJudge(env, token) {
   return judgeOut(r);
 }
 
+const newProject = (eventId, body, createdByName) => ({
+  id: randomId(16), eventId,
+  name: str(body?.name, 200, "El nombre del proyecto", true),
+  team: str(body?.team, 300, "El equipo"),
+  description: str(body?.description, 2000, "La descripción"),
+  createdByName, createdAt: now(),
+});
+const projectRow = (p) => [p.id, p.eventId, p.name, p.team, p.description, p.createdByName, p.createdAt];
+const PROJECT_COLS = ["id", "event_id", "name", "team", "description", "created_by_name", "created_at"];
+
+const newJudge = (eventId, name) => ({ id: randomId(24), eventId, name: str(name, 100, "El nombre del juez", true), createdAt: now() });
+const judgeRow = (j) => [j.id, j.eventId, j.name, j.createdAt];
+const JUDGE_COLS = ["token", "event_id", "name", "created_at"];
+
+// INSERT de varias filas por sentencia, respetando el límite de 100 parámetros por consulta de D1.
+function insertMany(env, table, cols, rows) {
+  const per = Math.floor(100 / cols.length);
+  const stmts = [];
+  for (let i = 0; i < rows.length; i += per) {
+    const chunk = rows.slice(i, i + per);
+    const ph = chunk.map(() => `(${cols.map(() => "?").join(", ")})`).join(", ");
+    stmts.push(env.DB.prepare(`INSERT INTO ${table} (${cols.join(", ")}) VALUES ${ph}`).bind(...chunk.flat()));
+  }
+  return stmts;
+}
+
 async function insertProject(env, eventId, body, createdByName) {
-  const p = {
-    id: randomId(16), eventId,
-    name: str(body.name, 200, "El nombre del proyecto", true),
-    team: str(body.team, 300, "El equipo"),
-    description: str(body.description, 2000, "La descripción"),
-    createdByName, createdAt: now(),
-  };
-  await env.DB.prepare(
-    "INSERT INTO projects (id, event_id, name, team, description, created_by_name, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-  ).bind(p.id, eventId, p.name, p.team, p.description, createdByName, p.createdAt).run();
+  const p = newProject(eventId, body, createdByName);
+  await env.DB.batch(insertMany(env, "projects", PROJECT_COLS, [projectRow(p)]));
   return p;
 }
 
@@ -193,20 +213,41 @@ async function listEvents({ env }) {
   return json(results.map(eventOut));
 }
 
+const newEvent = (body) => ({
+  id: randomId(16),
+  name: str(body.name, 200, "El nombre del evento", true),
+  description: str(body.description, 5000, "La descripción"),
+  scaleMax: body.scaleMax == null ? 10 : scaleMax(body.scaleMax),
+  open: body.open == null ? true : !!body.open,
+  criteria: body.criteria == null ? DEFAULT_CRITERIA() : criteria(body.criteria),
+  createdAt: now(),
+});
+
+const insertEvent = (env, e) =>
+  env.DB.prepare("INSERT INTO events (id, name, description, scale_max, open, criteria, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
+    .bind(e.id, e.name, e.description, e.scaleMax, e.open ? 1 : 0, JSON.stringify(e.criteria), e.createdAt);
+
 async function createEvent({ env, body }) {
-  const e = {
-    id: randomId(16),
-    name: str(body.name, 200, "El nombre del evento", true),
-    description: str(body.description, 5000, "La descripción"),
-    scaleMax: body.scaleMax == null ? 10 : scaleMax(body.scaleMax),
-    open: true,
-    criteria: body.criteria == null ? DEFAULT_CRITERIA() : criteria(body.criteria),
-    createdAt: now(),
-  };
-  await env.DB.prepare(
-    "INSERT INTO events (id, name, description, scale_max, open, criteria, created_at) VALUES (?, ?, ?, ?, 1, ?, ?)",
-  ).bind(e.id, e.name, e.description, e.scaleMax, JSON.stringify(e.criteria), e.createdAt).run();
+  const e = newEvent(body);
+  await insertEvent(env, e).run();
   return json(e, 201);
+}
+
+// Crea evento + jueces + proyectos en una sola transacción (importación desde .md).
+async function importEvent({ env, body }) {
+  const e = newEvent(body);
+  const judges = Array.isArray(body.judges) ? body.judges : [];
+  const projects = Array.isArray(body.projects) ? body.projects : [];
+  if (judges.length > MAX_IMPORT_JUDGES) fail(400, `Máximo ${MAX_IMPORT_JUDGES} jueces por importación.`);
+  if (projects.length > MAX_IMPORT_PROJECTS) fail(400, `Máximo ${MAX_IMPORT_PROJECTS} proyectos por importación.`);
+  const j = judges.map((name) => newJudge(e.id, name));
+  const p = projects.map((x) => newProject(e.id, x, "Organizador"));
+  await env.DB.batch([
+    insertEvent(env, e),
+    ...insertMany(env, "judges", JUDGE_COLS, j.map(judgeRow)),
+    ...insertMany(env, "projects", PROJECT_COLS, p.map(projectRow)),
+  ]);
+  return json({ event: e, judges: j.length, projects: p.length }, 201);
 }
 
 async function eventBundle({ env, params }) {
@@ -274,9 +315,8 @@ async function deleteProject({ env, params }) {
 
 async function createJudge({ env, params, body }) {
   await getEvent(env, params.id);
-  const j = { id: randomId(24), eventId: params.id, name: str(body.name, 100, "El nombre del juez", true), createdAt: now() };
-  await env.DB.prepare("INSERT INTO judges (token, event_id, name, created_at) VALUES (?, ?, ?, ?)")
-    .bind(j.id, j.eventId, j.name, j.createdAt).run();
+  const j = newJudge(params.id, body.name);
+  await env.DB.batch(insertMany(env, "judges", JUDGE_COLS, [judgeRow(j)]));
   return json(j, 201);
 }
 
@@ -363,6 +403,7 @@ const ROUTES = [
   ["GET", "me", () => json({ ok: true }), true],
   ["GET", "events", listEvents, true],
   ["POST", "events", createEvent, true],
+  ["POST", "events/import", importEvent, true],
   ["GET", "events/:id", eventBundle, true],
   ["PATCH", "events/:id", updateEvent, true],
   ["DELETE", "events/:id", deleteEvent, true],
